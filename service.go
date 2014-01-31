@@ -24,10 +24,10 @@ const (
 )
 
 var (
-	// Templates
+	// Templates -- I'll get to this later
 	// tmpl = template.Must(template.ParseFiles("templates/layout.html", "templates/fortune.html"))
 
-	// Database
+	// Database Statements
 	userInsertStatement        *sql.Stmt
 	userSelectStatement        *sql.Stmt
 	userSelectByEmailStatement *sql.Stmt
@@ -83,6 +83,7 @@ func main() {
 
 }
 
+// Static Resources
 func initStatic() *restful.WebService {
 	staticWS := new(restful.WebService)
 	staticWS.Route(staticWS.GET("/").To(serveIndex))
@@ -90,6 +91,7 @@ func initStatic() *restful.WebService {
 	return staticWS
 }
 
+// User Service API
 func userService() *restful.WebService {
 	ws := new(restful.WebService)
 
@@ -105,6 +107,7 @@ func userService() *restful.WebService {
 	return ws
 }
 
+// Returns a User from an ID
 func getUserById(request *restful.Request, response *restful.Response) {
 	userId := request.PathParameter("id")
 	var user User
@@ -118,6 +121,7 @@ func getUserById(request *restful.Request, response *restful.Response) {
 	response.WriteEntity(user)
 }
 
+// Creates a User from a ajax JSON user object
 func createUser(request *restful.Request, response *restful.Response) {
 
 	user := User{Id: 0}
@@ -125,16 +129,19 @@ func createUser(request *restful.Request, response *restful.Response) {
 	parseErr := request.ReadEntity(&user)
 	if parseErr == nil {
 
+		// Hash the password
 		hashed, err := bcrypt.GenerateFromPassword([]byte(user.Password), bcrypt.DefaultCost)
 		if err != nil {
 			panic(err)
 		}
 
+		// Insert to database
 		res, err := userInsertStatement.Exec(user.Name, user.Last, hashed, user.Email)
 		if err != nil {
 			log.Fatal(err)
 		}
 
+		// Grab last ID
 		lastId, err := res.LastInsertId()
 		if err != nil {
 			log.Fatal(err)
@@ -151,6 +158,7 @@ func createUser(request *restful.Request, response *restful.Response) {
 	}
 }
 
+// Serve index.html
 func serveIndex(req *restful.Request, resp *restful.Response) {
 	http.ServeFile(
 		resp.ResponseWriter,
