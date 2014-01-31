@@ -7,7 +7,7 @@ Go-restful working with react, mysql + bcrypt, and bootstrap
 	go get "github.com/emicklei/go-restful"
 	go get "github.com/go-sql-driver/mysql"
 
-MySQL Users Table:
+MySQL User Table:
 
 	id: int(16)
 	name: varchar(128)
