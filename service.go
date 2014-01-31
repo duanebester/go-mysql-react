@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"runtime"
 	"code.google.com/p/go.crypto/bcrypt"
-	"github.com/emicklei/go-restful"
+	"github.com/duanebester/go-restful"
 	"flag"
 	"log"
 	"net/http"
@@ -42,9 +42,16 @@ type User struct {
 }
 
 var rootDir string
+var dbUser string
+var dbPassword string
+var dbName string
 
 func init() {
+	// Command Line Args
 	flag.StringVar(&rootDir, "root-dir", "/Users/duanebester/go/src/httptest", "specifies the root dir where html and other files will be relative to")
+	flag.StringVar(&dbName, "db-name", "DBNAME", "MySQL Database Name")
+	flag.StringVar(&dbUser, "db-user", "USERNAME", "MySQL Database Username")
+	flag.StringVar(&dbPassword, "db-password", "PASSWORD", "MySQL Database Password")
 }
 
 func main() {
