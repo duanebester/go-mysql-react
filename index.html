@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Hello Go</title>
+    <link href="//netdna.bootstrapcdn.com/bootstrap/3.1.0/css/bootstrap.min.css" rel="stylesheet">
+    <script src="http://fb.me/react-0.8.0.js"></script>
+    <script src="http://fb.me/JSXTransformer-0.8.0.js"></script>
+    <script src="http://code.jquery.com/jquery-1.11.0.min.js"></script>
+  </head>
+  <body>
+    <div id="content" style="width: 600px; margin: 50px auto;"></div>
+    <script type="text/jsx">
+      /**
+       * @jsx React.DOM
+       */
+      var UserForm = React.createClass({
+		  handleSubmit: function() 
+		  {
+		    var name = this.refs.first.getDOMNode().value.trim();
+		    var last = this.refs.last.getDOMNode().value.trim();
+		    var email = this.refs.email.getDOMNode().value.trim();
+		    var password = this.refs.password.getDOMNode().value.trim();
+
+		    if (!name || !last || !email || !password) 
+		    {
+		      return false;
+		    }
+
+		    var data = { name: name, last: last, password: password, email: email };
+		    
+		    $.ajax({
+		      url: "http://localhost:8080/api/users/new",
+		      dataType: 'json',
+		      type: 'POST',
+		      contentType: "application/json",
+		      data: JSON.stringify(data),
+		      success: function(x,y) {
+		        //console.log(x, y);
+		        alert("Saved!");
+		      },
+		      error: function(x,y,z) {
+		      	console.log(x , y , z);
+		      }
+		    });
+
+		    this.refs.first.getDOMNode().value = '';
+		    this.refs.last.getDOMNode().value = '';
+		    this.refs.email.getDOMNode().value = '';
+		    this.refs.password.getDOMNode().value = '';
+
+		    return false;
+		  },
+		  render: function() {
+		    return (
+		      <form className="form-horizontal" role="form" onSubmit={this.handleSubmit}>
+		       	  <div className="form-group">
+		            <input type="text" className="form-control" placeholder="First" ref="first"       />
+		          </div>
+		          <div className="form-group">
+		            <input type="text" className="form-control" placeholder="Last" ref="last"         />
+		          </div>
+		          <div className="form-group">
+		            <input type="text" className="form-control" placeholder="Email" ref="email"       />
+		          </div>
+		          <div className="form-group">
+		            <input type="text" className="form-control" placeholder="Password" ref="password" />
+		          </div>
+		          <div className="form-group">
+		            <input type="submit" className="btn btn-default" value="Submit" />
+		          </div>
+		      </form>
+		    );
+		  }
+		});
+		React.renderComponent(
+		  <UserForm />,
+		  document.getElementById('content')
+		);
+    </script>
+  </body>
+</html>
