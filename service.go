@@ -15,7 +15,7 @@ import (
 const (
 	// Database
 	databaseType       = "mysql"
-	connectionString   = "duanebester:du4n3b3s@tcp(127.0.0.1:3306)/monty"
+	connectionString   = "USER:PASSWORD@tcp(127.0.0.1:3306)/DATABASE"
 	userSelect         = "SELECT id, name, last, password, email FROM user WHERE id = ?"
 	userSelectByEmail  = "SELECT id, name, last, password, email FROM user WHERE email = ? LIMIT 1"
 	userInsert         = "INSERT INTO user(name,last,password,email) VALUES(?,?,?,?)"
