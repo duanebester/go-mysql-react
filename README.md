@@ -7,6 +7,15 @@ Go-restful working with react, mysql + bcrypt, and bootstrap
 	go get "github.com/emicklei/go-restful"
 	go get "github.com/go-sql-driver/mysql"
 
+Make sure to change the connect string:
+
+	"USER:PASSWORD@tcp(127.0.0.1:3306)/DATABASE"
+
+Running:
+
+	go build service.go
+	./service
+
 MySQL User Table:
 
 	id: int(16)
