@@ -71,6 +71,7 @@ type Agent struct {
 	Secret        string `json:"secret"`
 	Appkey        string `json:"appkey"`
 	Created       string `json:"created"`
+}
 
 func init() {
 	// Command Line Arguments:
