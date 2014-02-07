@@ -18,7 +18,7 @@ import (
 const (
 	// Database
 	databaseType       = "mysql"
-	connectionString   = "duanebester:du4n3b3s@tcp(127.0.0.1:3306)/monty"
+	connectionString   = "duanebester:PASS@tcp(127.0.0.1:3306)/monty"
 	usersSelect        = "SELECT id, name, last, password, email, created FROM user ORDER BY created ASC LIMIT ?"
 	userSelect         = "SELECT id, name, last, password, email, created FROM user WHERE id = ?"
 	//userSelectByEmail  = "SELECT id, name, last, password, email FROM user WHERE email = ? LIMIT 1"
