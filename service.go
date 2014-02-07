@@ -71,6 +71,10 @@ type Agent struct {
 	Secret        string `json:"secret"`
 	Appkey        string `json:"appkey"`
 	Created       string `json:"created"`
+
+func init() {
+	// Command Line Args
+	flag.StringVar(&rootDir, "root-dir", "/Users/duanebester/go/src/httptest", "specifies the root dir where html and other files will be relative to")
 }
 
 func init() {
