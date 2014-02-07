@@ -73,11 +73,6 @@ type Agent struct {
 	Created       string `json:"created"`
 
 func init() {
-	// Command Line Args
-	flag.StringVar(&rootDir, "root-dir", "/Users/duanebester/go/src/httptest", "specifies the root dir where html and other files will be relative to")
-}
-
-func init() {
 	// Command Line Arguments:
 	flag.StringVar(&rootDir, "root-dir", "/Users/duanebester/go/src/service", "The root dir where project source is located.")
 }
