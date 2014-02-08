@@ -10,7 +10,7 @@ import (
 	"encoding/base64"
 	"log"
 	"net/http"
-	"path"
+	//"path"
 	"database/sql"
 	_ "github.com/go-sql-driver/mysql"
 )
@@ -18,31 +18,45 @@ import (
 const (
 	// Database
 	databaseType       = "mysql"
-	connectionString   = "duanebester:PASS@tcp(127.0.0.1:3306)/monty"
+
 	usersSelect        = "SELECT id, name, last, password, email, created FROM user ORDER BY created ASC LIMIT ?"
-	userSelect         = "SELECT id, name, last, password, email, created FROM user WHERE id = ?"
-	//userSelectByEmail  = "SELECT id, name, last, password, email FROM user WHERE email = ? LIMIT 1"
+
 	userInsert         = "INSERT INTO user(name,last,password,email) VALUES(?,?,?,?)"
+	userSelect         = "SELECT id, name, last, password, email, created FROM user WHERE id = ?"
 
-	agentInsert         = "INSERT INTO agent(name,user_id,secret,appkey) VALUES(?,?,?,?)"
-	agentSelect         = "SELECT id, name, user_id, secret, appkey, created FROM agent WHERE id = ?"
+	agentInsert        = "INSERT INTO agent(name,user_id,secret,appkey) VALUES(?,?,?,?)"
+	agentSelect        = "SELECT id, name, user_id, secret, appkey, created FROM agent WHERE id = ?"
 
+	agentSelectIdByKey = "SELECT id FROM agent WHERE appkey = ?"
+
+	alertInsert        = "INSERT INTO alert(message, category, level, agent_id) VALUES(?,?,?,?)"
+	alertSelect        = "SELECT id, message,category, level, agent_id, created FROM agent WHERE id = ?"
 	
 	maxConnectionCount = 256
 )
 
 var (
 	// Database Statements
-	userInsertStatement        *sql.Stmt
-	userSelectStatement        *sql.Stmt
+	userInsertStatement         *sql.Stmt
+	userSelectStatement         *sql.Stmt
 
-	usersSelectStatement       *sql.Stmt
+	usersSelectStatement        *sql.Stmt
 
-	agentInsertStatement       *sql.Stmt
-	agentSelectStatement       *sql.Stmt
+	agentInsertStatement        *sql.Stmt
+	agentSelectStatement        *sql.Stmt
+
+	agentSelectIdByKeyStatement *sql.Stmt
+
+	alertInsertStatement        *sql.Stmt
+	alertSelectStatement        *sql.Stmt
 
 	// App dir for resources
 	rootDir string
+
+	// Command line args for DB
+	dbUsername string
+	dbName string
+	dbPassword string
 )
 
 type User struct {
@@ -58,6 +72,7 @@ type User struct {
 type Alert struct {
 	Id       uint32 `json:"id"`
 	Level     uint8 `json:"level"`
+	Appkey   string `json:"appkey"`
 	AgentId  uint32 `json:"agentid"`
 	Message  string `json:"message"`
 	Created  string `json:"created"`
@@ -76,11 +91,18 @@ type Agent struct {
 func init() {
 	// Command Line Arguments:
 	flag.StringVar(&rootDir, "root-dir", "/Users/duanebester/go/src/service", "The root dir where project source is located.")
+	flag.StringVar(&dbUsername, "db-user", "USERNAME", "Username to connect to your MySQL DB.")
+	flag.StringVar(&dbName, "db-name", "DBNAME", "Name of your MySQL DB.")
+	flag.StringVar(&dbPassword, "db-pass", "PASSWORD", "Password to connect to your MySQL DB.")
 }
 
 func prepareDatabase() {
 
 	// Database Setup
+	//connectionString   := "USER:PASS@tcp(127.0.0.1:3306)/DATABASE"
+
+	connectionString   := strings.Join( []string{dbUsername, ":", dbPassword, "@tcp(127.0.0.1:3306)/", dbName},"")
+
 	db, err := sql.Open(databaseType, connectionString)
 	if err != nil {
 		log.Fatalf("Error opening database: %v", err)
@@ -103,6 +125,15 @@ func prepareDatabase() {
 
 	agentSelectStatement, err = db.Prepare(agentSelect)
 	if err != nil { log.Fatal(err) }
+
+	agentSelectIdByKeyStatement, err = db.Prepare(agentSelectIdByKey)
+	if err != nil { log.Fatal(err) }
+
+	alertInsertStatement, err = db.Prepare(alertInsert)
+	if err != nil { log.Fatal(err) }
+
+	alertSelectStatement, err = db.Prepare(agentSelect)
+	if err != nil { log.Fatal(err) }
 }
 
 func main() {
@@ -117,9 +148,7 @@ func main() {
 
 	// Web Service
 	wsContainer := restful.NewContainer()
-	initWS := initStatic()
 	apiWS := apiService()
-	wsContainer.Add(initWS).EnableContentEncoding(true)
 	wsContainer.Add(apiWS)
 	log.Println("Listening ... 8080")
 	log.Fatal(http.ListenAndServe(":8080", wsContainer))
@@ -142,16 +171,6 @@ func randomString(strength int) string {
 	return strings.TrimRight(base64.URLEncoding.EncodeToString(s), "=")
 }
 
-
-// Static Resources
-func initStatic() *restful.WebService {
-	staticWS := new(restful.WebService)
-	staticWS.Filter(staticLog)
-	staticWS.Route(staticWS.GET("/").To(serveIndex))
-	staticWS.Route(staticWS.GET("/{static}").To(serveStatic))
-	return staticWS
-}
-
 // Service API
 func apiService() *restful.WebService {
 	ws := new(restful.WebService)
@@ -161,7 +180,7 @@ func apiService() *restful.WebService {
 		Consumes(restful.MIME_JSON).
 		Produces(restful.MIME_JSON)
 
-    ws.Filter(apiAuth)
+    ws.Filter(apiAuth).Filter(staticLog)
 
     ws.Route(ws.GET("/users/{limit}").To(getUsers))
 	ws.Route(ws.POST("/user").To(createUser))
@@ -170,32 +189,44 @@ func apiService() *restful.WebService {
 	ws.Route(ws.POST("/agent").To(createAgent))
 	ws.Route(ws.GET("/agent/{id}").To(getAgentById))
 
+	ws.Route(ws.POST("/alert").To(createAlert))
+
 	ws.Route(ws.GET("/code/new").To(getAuthCode))
 
 	return ws
 }
 
-// TODO: RateLimitFilter
-
-func apiAuth(req *restful.Request, resp *restful.Response, chain *restful.FilterChain) {
+func apiAuth(req *restful.Request, response *restful.Response, chain *restful.FilterChain) {
 	
-	encoded := req.Request.Header.Get("Authorization")
+	appkey := req.Request.Header.Get("Authorization")
 	
-	if len(encoded) == 0 {
-		resp.AddHeader("WWW-Authenticate", "Basic realm=Protected Area")
-		resp.WriteErrorString(401, "401: Not Authorized")
+	if len(appkey) == 0 {
+		response.WriteHeader(http.StatusPaymentRequired)
 		log.Println("Error")
 		return
 	}
 
-	_, err := base64.StdEncoding.DecodeString(encoded[6:])
+	var agentId uint32
+
+	err := SelectAgentIdByKey().QueryRow(appkey).Scan(&agentId)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	req.SetAttribute("agentId", agentId)
+
+	// TODO Handle appkey validation
+	/*
+	_, err := base64.StdEncoding.DecodeString(encoded)
 	if err != nil {
 		log.Println("error:", err)
 		return
 	}
-
-	chain.ProcessFilter(req, resp)
+	*/
+	chain.ProcessFilter(req, response)
 }
+
+// TODO: RateLimitFilter
 
 // WebService Filter
 func staticLog(req *restful.Request, resp *restful.Response, chain *restful.FilterChain) {
@@ -326,22 +357,42 @@ func createAgent(req *restful.Request, response *restful.Response) {
 	}
 }
 
-// Serve index.html
-func serveIndex(req *restful.Request, resp *restful.Response) {
-	http.ServeFile(
-		resp.ResponseWriter,
-		req.Request,
-		path.Join(rootDir, "index.html"))
-}
+// Creates an Alert
+func createAlert(req *restful.Request, response *restful.Response) {
 
-// Serve Static 
-func serveStatic(req *restful.Request, resp *restful.Response) {
-	filename := req.PathParameter("static")
-	//log.Println(filename)
-	http.ServeFile(
-		resp.ResponseWriter,
-		req.Request,
-		path.Join(rootDir, filename))
+	alert := Alert{Id: 0}
+	
+	parseErr := req.ReadEntity(&alert)
+
+	if parseErr == nil {
+
+		if req.Attribute("agentId") == nil {
+			response.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		// ~-----   "INSERT INTO alert(message, category, level, agent_id)"
+		res, err := InsertAlert().Exec(alert.Message, alert.Category, alert.Level, req.Attribute("agentId"))
+		if err != nil {
+			log.Println(err)
+			response.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		// Grab last ID
+		lastId, err := res.LastInsertId()
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		log.Println("New Alert ID: ", lastId)
+		response.WriteHeader(http.StatusCreated)
+		response.WriteEntity(lastId)
+
+	} else {
+		log.Fatal(parseErr.Error())
+		response.AddHeader("Content-Type", "text/plain")
+		response.WriteErrorString(http.StatusInternalServerError, parseErr.Error())
+	}
 }
 
 func InsertUser() *sql.Stmt {
@@ -350,6 +401,10 @@ func InsertUser() *sql.Stmt {
 
 func InsertAgent() *sql.Stmt {
 	return agentInsertStatement
+}
+
+func InsertAlert() *sql.Stmt {
+	return alertInsertStatement
 }
 
 func SelectUser() *sql.Stmt {
@@ -362,6 +417,14 @@ func SelectUsers() *sql.Stmt {
 
 func SelectAgent() *sql.Stmt {
 	return agentSelectStatement
+}
+
+func SelectAgentIdByKey() *sql.Stmt {
+	return agentSelectIdByKeyStatement
+}
+
+func SelectAlert() *sql.Stmt {
+	return alertSelectStatement
 }
 
 
