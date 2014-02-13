@@ -10,29 +10,32 @@ import (
 	"encoding/base64"
 	"log"
 	"net/http"
-	//"path"
 	"database/sql"
 	_ "github.com/go-sql-driver/mysql"
 )
 
 const (
 	// Database
-	databaseType       = "mysql"
+	databaseType        = "mysql"
 
-	usersSelect        = "SELECT id, name, last, password, email, created FROM user ORDER BY created ASC LIMIT ?"
+	usersSelect         = "SELECT id, name, last, password, email, created FROM user ORDER BY created ASC LIMIT ?"
 
-	userInsert         = "INSERT INTO user(name,last,password,email) VALUES(?,?,?,?)"
-	userSelect         = "SELECT id, name, last, password, email, created FROM user WHERE id = ?"
+	userInsert          = "INSERT INTO user(name,last,password,email) VALUES(?,?,?,?)"
+	userSelect          = "SELECT id, name, last, password, email, created FROM user WHERE id = ?"
 
-	agentInsert        = "INSERT INTO agent(name,user_id,secret,appkey) VALUES(?,?,?,?)"
-	agentSelect        = "SELECT id, name, user_id, secret, appkey, created FROM agent WHERE id = ?"
+	agentInsert         = "INSERT INTO agent(name,user_id,secret,appkey) VALUES(?,?,?,?)"
+	agentSelect         = "SELECT id, name, user_id, secret, appkey, created FROM agent WHERE id = ?"
 
-	agentSelectIdByKey = "SELECT id FROM agent WHERE appkey = ?"
+	agentsSelectByUser  = "SELECT id, name, user_id, created FROM agent WHERE user_id = ? ORDER BY created"
 
-	alertInsert        = "INSERT INTO alert(message, category, level, agent_id) VALUES(?,?,?,?)"
-	alertSelect        = "SELECT id, message,category, level, agent_id, created FROM agent WHERE id = ?"
+	agentSelectIdByKey  = "SELECT id FROM agent WHERE appkey = ?"
+
+	alertInsert         = "INSERT INTO alert(message, category, level, agent_id) VALUES(?,?,?,?)"
+	alertSelect         = "SELECT id, message,category, level, agent_id, created FROM alert WHERE id = ?"
+
+	alertsSelectByAgent = "SELECT id,message,category,level,agent_id, created FROM alert WHERE agent_id = ? ORDER BY created LIMIT ?"
 	
-	maxConnectionCount = 256
+	maxConnectionCount  = 256
 )
 
 var (
@@ -44,11 +47,14 @@ var (
 
 	agentInsertStatement        *sql.Stmt
 	agentSelectStatement        *sql.Stmt
+	agentsSelectByUserStatement *sql.Stmt
 
 	agentSelectIdByKeyStatement *sql.Stmt
 
 	alertInsertStatement        *sql.Stmt
 	alertSelectStatement        *sql.Stmt
+
+	alertsSelectByAgentStatement  *sql.Stmt
 
 	// App dir for resources
 	rootDir string
@@ -90,6 +96,7 @@ type Agent struct {
 
 func init() {
 	// Command Line Arguments:
+	// EX: ./service -db-user=SomeName -db-pass=SomePass -db-user=SomeUser
 	flag.StringVar(&rootDir, "root-dir", "/Users/duanebester/go/src/service", "The root dir where project source is located.")
 	flag.StringVar(&dbUsername, "db-user", "USERNAME", "Username to connect to your MySQL DB.")
 	flag.StringVar(&dbName, "db-name", "DBNAME", "Name of your MySQL DB.")
@@ -126,13 +133,19 @@ func prepareDatabase() {
 	agentSelectStatement, err = db.Prepare(agentSelect)
 	if err != nil { log.Fatal(err) }
 
+	agentsSelectByUserStatement, err = db.Prepare(agentsSelectByUser)
+	if err != nil { log.Fatal(err) }
+
 	agentSelectIdByKeyStatement, err = db.Prepare(agentSelectIdByKey)
 	if err != nil { log.Fatal(err) }
 
 	alertInsertStatement, err = db.Prepare(alertInsert)
 	if err != nil { log.Fatal(err) }
 
-	alertSelectStatement, err = db.Prepare(agentSelect)
+	alertSelectStatement, err = db.Prepare(alertSelect)
+	if err != nil { log.Fatal(err) }
+
+	alertsSelectByAgentStatement, err = db.Prepare(alertsSelectByAgent)
 	if err != nil { log.Fatal(err) }
 }
 
@@ -149,7 +162,9 @@ func main() {
 	// Web Service
 	wsContainer := restful.NewContainer()
 	apiWS := apiService()
+	wpiWS := wpiService()
 	wsContainer.Add(apiWS)
+	wsContainer.Add(wpiWS)
 	log.Println("Listening ... 8080")
 	log.Fatal(http.ListenAndServe(":8080", wsContainer))
 
@@ -180,16 +195,34 @@ func apiService() *restful.WebService {
 		Consumes(restful.MIME_JSON).
 		Produces(restful.MIME_JSON)
 
-    ws.Filter(apiAuth).Filter(staticLog)
+    ws.Filter(apiAuth).Filter(apiLog)
+
+	ws.Route(ws.GET("/alerts").To(getAlertsByAgentKey))
+	ws.Route(ws.POST("/alert").To(createAlert))
+
+	return ws
+}
+
+// Private API for Web Apps to CRUD users / agents and such
+func wpiService() *restful.WebService {
+	ws := new(restful.WebService)
+
+	ws.
+		Path("/wpi").
+		Consumes(restful.MIME_JSON).
+		Produces(restful.MIME_JSON)
+
+    ws.Filter(wpiAuth).Filter(apiLog)
 
     ws.Route(ws.GET("/users/{limit}").To(getUsers))
 	ws.Route(ws.POST("/user").To(createUser))
 	ws.Route(ws.GET("/user/{id}").To(getUserById))
+	ws.Route(ws.GET("/user/{id}/agents").To(getAgentsByUser))
 
 	ws.Route(ws.POST("/agent").To(createAgent))
 	ws.Route(ws.GET("/agent/{id}").To(getAgentById))
 
-	ws.Route(ws.POST("/alert").To(createAlert))
+	ws.Route(ws.GET("/agent/{id}/alerts").To(getAlertsByAgentId))
 
 	ws.Route(ws.GET("/code/new").To(getAuthCode))
 
@@ -199,6 +232,8 @@ func apiService() *restful.WebService {
 func apiAuth(req *restful.Request, response *restful.Response, chain *restful.FilterChain) {
 	
 	appkey := req.Request.Header.Get("Authorization")
+
+	log.Println(appkey)
 	
 	if len(appkey) == 0 {
 		response.WriteHeader(http.StatusPaymentRequired)
@@ -215,21 +250,28 @@ func apiAuth(req *restful.Request, response *restful.Response, chain *restful.Fi
 
 	req.SetAttribute("agentId", agentId)
 
-	// TODO Handle appkey validation
-	/*
-	_, err := base64.StdEncoding.DecodeString(encoded)
-	if err != nil {
-		log.Println("error:", err)
+	chain.ProcessFilter(req, response)
+}
+
+func wpiAuth(req *restful.Request, response *restful.Response, chain *restful.FilterChain) {
+
+	log.Println(req.Request.RemoteAddr)
+
+	ip := strings.Split(req.Request.RemoteAddr,":")[0]
+	
+	if len(ip) == 0 {
+		response.WriteHeader(http.StatusPaymentRequired)
+		log.Println("Error")
 		return
 	}
-	*/
+
 	chain.ProcessFilter(req, response)
 }
 
 // TODO: RateLimitFilter
 
-// WebService Filter
-func staticLog(req *restful.Request, resp *restful.Response, chain *restful.FilterChain) {
+// Logging Filter
+func apiLog(req *restful.Request, resp *restful.Response, chain *restful.FilterChain) {
 	log.Printf("[Static] %s - %s\n", req.Request.Method, req.Request.URL)
 	chain.ProcessFilter(req, resp)
 }
@@ -324,6 +366,36 @@ func getAgentById(req *restful.Request, response *restful.Response) {
 	response.WriteEntity(agent)
 }
 
+func getAgentsByUser(req *restful.Request, resp *restful.Response) {
+
+	userId := req.PathParameter("id")
+	var agents []Agent
+	// "SELECT id, name, user_id, created FROM agent WHERE user_id = ? ORDER BY created"
+	rows, err := SelectAgentsByUser().Query(userId)
+
+	var temp Agent
+	defer rows.Close()
+
+	for rows.Next() {
+		err := rows.Scan(&temp.Id, &temp.Name, &temp.UserId, &temp.Created)
+		if err != nil {
+			log.Fatal(err)
+		}
+		agents = append(agents, temp)
+	}
+	err = rows.Err()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	resp.WriteHeader(http.StatusFound)
+	resp.WriteEntity(agents)
+}
+
+// TODO: UpdateAgentById
+
+// TODO: DeleteAgentById
+
 // Creates an Agent from a ajax JSON user object
 func createAgent(req *restful.Request, response *restful.Response) {
 
@@ -370,6 +442,8 @@ func createAlert(req *restful.Request, response *restful.Response) {
 			response.WriteHeader(http.StatusBadRequest)
 			return
 		}
+
+		log.Println(alert.Message, alert.Category, alert.Level, req.Attribute("agentId"))
 		// ~-----   "INSERT INTO alert(message, category, level, agent_id)"
 		res, err := InsertAlert().Exec(alert.Message, alert.Category, alert.Level, req.Attribute("agentId"))
 		if err != nil {
@@ -393,6 +467,63 @@ func createAlert(req *restful.Request, response *restful.Response) {
 		response.AddHeader("Content-Type", "text/plain")
 		response.WriteErrorString(http.StatusInternalServerError, parseErr.Error())
 	}
+}
+
+func getAlertsByAgentKey(req *restful.Request, resp *restful.Response) {
+
+	if req.Attribute("agentId") == nil {
+		resp.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	alerts := make([]Alert, 0, 10)
+	// "SELECT id,message,category,level,agent_id, created FROM alert WHERE agent_id = ? LIMIT ?"
+	rows, err := SelectAlertsByAgent().Query(req.Attribute("agentId"), 10)
+
+	var tempAlert Alert
+	defer rows.Close()
+
+	for rows.Next() {
+		err := rows.Scan(&tempAlert.Id, &tempAlert.Message, &tempAlert.Category, &tempAlert.Level, &tempAlert.AgentId, &tempAlert.Created)
+		if err != nil {
+			log.Fatal(err)
+		}
+		alerts = append(alerts, tempAlert)
+	}
+	err = rows.Err()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	resp.WriteHeader(http.StatusFound)
+	resp.WriteEntity(alerts)
+}
+
+func getAlertsByAgentId(req *restful.Request, resp *restful.Response) {
+
+	agentId := req.PathParameter("id")
+	alerts := make([]Alert, 0, 10)
+
+	// "SELECT id,message,category,level,agent_id, created FROM alert WHERE agent_id = ? LIMIT ?"
+	rows, err := SelectAlertsByAgent().Query(agentId, 10)
+
+	var tempAlert Alert
+	defer rows.Close()
+
+	for rows.Next() {
+		err := rows.Scan(&tempAlert.Id, &tempAlert.Message, &tempAlert.Category, &tempAlert.Level, &tempAlert.AgentId, &tempAlert.Created)
+		if err != nil {
+			log.Fatal(err)
+		}
+		alerts = append(alerts, tempAlert)
+	}
+	err = rows.Err()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	resp.WriteHeader(http.StatusFound)
+	resp.WriteEntity(alerts)
 }
 
 func InsertUser() *sql.Stmt {
@@ -419,12 +550,20 @@ func SelectAgent() *sql.Stmt {
 	return agentSelectStatement
 }
 
+func SelectAgentsByUser() *sql.Stmt {
+	return agentsSelectByUserStatement
+}
+
 func SelectAgentIdByKey() *sql.Stmt {
 	return agentSelectIdByKeyStatement
 }
 
 func SelectAlert() *sql.Stmt {
 	return alertSelectStatement
+}
+
+func SelectAlertsByAgent() *sql.Stmt {
+	return alertsSelectByAgentStatement
 }
 
 
