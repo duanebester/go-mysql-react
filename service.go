@@ -1,49 +1,49 @@
 package main
 
 import (
-	"runtime"
 	"code.google.com/p/go.crypto/bcrypt"
-	"github.com/duanebester/go-restful"
-	"flag"
-	"strings"
 	"crypto/rand"
+	"database/sql"
 	"encoding/base64"
+	"flag"
+	"github.com/duanebester/go-restful"
+	_ "github.com/go-sql-driver/mysql"
 	"log"
 	"net/http"
-	"database/sql"
-	_ "github.com/go-sql-driver/mysql"
+	"runtime"
+	"strings"
 )
 
 const (
 	// Database
-	databaseType        = "mysql"
+	databaseType = "mysql"
 
-	usersSelect         = "SELECT id, name, last, password, email, created FROM user ORDER BY created ASC LIMIT ?"
+	usersSelect = "SELECT id, name, last, password, email, created FROM user ORDER BY created ASC LIMIT ?"
 
-	userInsert          = "INSERT INTO user(name,last,password,email) VALUES(?,?,?,?)"
-	userSelect          = "SELECT id, name, last, password, email, created FROM user WHERE id = ?"
+	userInsert = "INSERT INTO user(name,last,password,email) VALUES(?,?,?,?)"
+	userSelect = "SELECT id, name, last, password, email, created FROM user WHERE id = ?"
 
-	agentInsert         = "INSERT INTO agent(name,user_id,secret,appkey) VALUES(?,?,?,?)"
-	agentSelect         = "SELECT id, name, user_id, secret, appkey, created FROM agent WHERE id = ?"
+	agentInsert = "INSERT INTO agent(name,user_id,secret,appkey) VALUES(?,?,?,?)"
+	agentSelect = "SELECT id, name, user_id, secret, appkey, created FROM agent WHERE id = ?"
 
-	agentsSelectByUser  = "SELECT id, name, user_id, created FROM agent WHERE user_id = ? ORDER BY created"
+	agentsSelectByUser = "SELECT id, name, user_id, created FROM agent WHERE user_id = ? ORDER BY created"
 
-	agentSelectIdByKey  = "SELECT id FROM agent WHERE appkey = ?"
+	agentSelectIdByKey = "SELECT id FROM agent WHERE appkey = ?"
 
-	alertInsert         = "INSERT INTO alert(message, category, level, agent_id) VALUES(?,?,?,?)"
-	alertSelect         = "SELECT id, message,category, level, agent_id, created FROM alert WHERE id = ?"
+	alertInsert = "INSERT INTO alert(message, category, level, agent_id) VALUES(?,?,?,?)"
+	alertSelect = "SELECT id, message,category, level, agent_id, created FROM alert WHERE id = ?"
 
 	alertsSelectByAgent = "SELECT id,message,category,level,agent_id, created FROM alert WHERE agent_id = ? ORDER BY created LIMIT ?"
-	
-	maxConnectionCount  = 256
+
+	maxConnectionCount = 256
 )
 
 var (
 	// Database Statements
-	userInsertStatement         *sql.Stmt
-	userSelectStatement         *sql.Stmt
+	userInsertStatement *sql.Stmt
+	userSelectStatement *sql.Stmt
 
-	usersSelectStatement        *sql.Stmt
+	usersSelectStatement *sql.Stmt
 
 	agentInsertStatement        *sql.Stmt
 	agentSelectStatement        *sql.Stmt
@@ -51,17 +51,17 @@ var (
 
 	agentSelectIdByKeyStatement *sql.Stmt
 
-	alertInsertStatement        *sql.Stmt
-	alertSelectStatement        *sql.Stmt
+	alertInsertStatement *sql.Stmt
+	alertSelectStatement *sql.Stmt
 
-	alertsSelectByAgentStatement  *sql.Stmt
+	alertsSelectByAgentStatement *sql.Stmt
 
 	// App dir for resources
 	rootDir string
 
 	// Command line args for DB
 	dbUsername string
-	dbName string
+	dbName     string
 	dbPassword string
 )
 
@@ -77,7 +77,7 @@ type User struct {
 
 type Alert struct {
 	Id       uint32 `json:"id"`
-	Level     uint8 `json:"level"`
+	Level    uint8  `json:"level"`
 	Appkey   string `json:"appkey"`
 	AgentId  uint32 `json:"agentid"`
 	Message  string `json:"message"`
@@ -86,12 +86,12 @@ type Alert struct {
 }
 
 type Agent struct {
-	Id            uint32 `json:"id"`
-	UserId        uint16 `json:"userid"`
-	Name          string `json:"name"`
-	Secret        string `json:"secret"`
-	Appkey        string `json:"appkey"`
-	Created       string `json:"created"`
+	Id      uint32 `json:"id"`
+	UserId  uint16 `json:"userid"`
+	Name    string `json:"name"`
+	Secret  string `json:"secret"`
+	Appkey  string `json:"appkey"`
+	Created string `json:"created"`
 }
 
 func init() {
@@ -108,7 +108,7 @@ func prepareDatabase() {
 	// Database Setup
 	//connectionString   := "USER:PASS@tcp(127.0.0.1:3306)/DATABASE"
 
-	connectionString   := strings.Join( []string{dbUsername, ":", dbPassword, "@tcp(127.0.0.1:3306)/", dbName},"")
+	connectionString := strings.Join([]string{dbUsername, ":", dbPassword, "@tcp(127.0.0.1:3306)/", dbName}, "")
 
 	db, err := sql.Open(databaseType, connectionString)
 	if err != nil {
@@ -119,34 +119,54 @@ func prepareDatabase() {
 
 	// Prepared Database Queries
 	userInsertStatement, err = db.Prepare(userInsert)
-	if err != nil { log.Fatal(err) }
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	userSelectStatement, err = db.Prepare(userSelect)
-	if err != nil { log.Fatal(err) }
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	usersSelectStatement, err = db.Prepare(usersSelect)
-	if err != nil { log.Fatal(err) }
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	agentInsertStatement, err = db.Prepare(agentInsert)
-	if err != nil { log.Fatal(err) }
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	agentSelectStatement, err = db.Prepare(agentSelect)
-	if err != nil { log.Fatal(err) }
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	agentsSelectByUserStatement, err = db.Prepare(agentsSelectByUser)
-	if err != nil { log.Fatal(err) }
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	agentSelectIdByKeyStatement, err = db.Prepare(agentSelectIdByKey)
-	if err != nil { log.Fatal(err) }
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	alertInsertStatement, err = db.Prepare(alertInsert)
-	if err != nil { log.Fatal(err) }
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	alertSelectStatement, err = db.Prepare(alertSelect)
-	if err != nil { log.Fatal(err) }
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	alertsSelectByAgentStatement, err = db.Prepare(alertsSelectByAgent)
-	if err != nil { log.Fatal(err) }
+	if err != nil {
+		log.Fatal(err)
+	}
 }
 
 func main() {
@@ -195,7 +215,7 @@ func apiService() *restful.WebService {
 		Consumes(restful.MIME_JSON).
 		Produces(restful.MIME_JSON)
 
-    ws.Filter(apiAuth).Filter(apiLog)
+	ws.Filter(apiAuth).Filter(apiLog)
 
 	ws.Route(ws.GET("/alerts").To(getAlertsByAgentKey))
 	ws.Route(ws.POST("/alert").To(createAlert))
@@ -212,9 +232,9 @@ func wpiService() *restful.WebService {
 		Consumes(restful.MIME_JSON).
 		Produces(restful.MIME_JSON)
 
-    ws.Filter(wpiAuth).Filter(apiLog)
+	ws.Filter(wpiAuth).Filter(apiLog)
 
-    ws.Route(ws.GET("/users/{limit}").To(getUsers))
+	ws.Route(ws.GET("/users/{limit}").To(getUsers))
 	ws.Route(ws.POST("/user").To(createUser))
 	ws.Route(ws.GET("/user/{id}").To(getUserById))
 	ws.Route(ws.GET("/user/{id}/agents").To(getAgentsByUser))
@@ -230,11 +250,11 @@ func wpiService() *restful.WebService {
 }
 
 func apiAuth(req *restful.Request, response *restful.Response, chain *restful.FilterChain) {
-	
+
 	appkey := req.Request.Header.Get("Authorization")
 
 	log.Println(appkey)
-	
+
 	if len(appkey) == 0 {
 		response.WriteHeader(http.StatusPaymentRequired)
 		log.Println("Error")
@@ -257,8 +277,8 @@ func wpiAuth(req *restful.Request, response *restful.Response, chain *restful.Fi
 
 	log.Println(req.Request.RemoteAddr)
 
-	ip := strings.Split(req.Request.RemoteAddr,":")[0]
-	
+	ip := strings.Split(req.Request.RemoteAddr, ":")[0]
+
 	if len(ip) == 0 {
 		response.WriteHeader(http.StatusPaymentRequired)
 		log.Println("Error")
@@ -319,7 +339,7 @@ func getUserById(req *restful.Request, response *restful.Response) {
 func createUser(req *restful.Request, response *restful.Response) {
 
 	user := User{Id: 0}
-	
+
 	parseErr := req.ReadEntity(&user)
 	if parseErr == nil {
 
@@ -400,7 +420,7 @@ func getAgentsByUser(req *restful.Request, resp *restful.Response) {
 func createAgent(req *restful.Request, response *restful.Response) {
 
 	agent := Agent{Id: 0, Secret: randomString(24), Appkey: randomString(16)}
-	
+
 	parseErr := req.ReadEntity(&agent)
 
 	if parseErr == nil {
@@ -433,7 +453,7 @@ func createAgent(req *restful.Request, response *restful.Response) {
 func createAlert(req *restful.Request, response *restful.Response) {
 
 	alert := Alert{Id: 0}
-	
+
 	parseErr := req.ReadEntity(&alert)
 
 	if parseErr == nil {
@@ -565,21 +585,3 @@ func SelectAlert() *sql.Stmt {
 func SelectAlertsByAgent() *sql.Stmt {
 	return alertsSelectByAgentStatement
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
