@@ -3,6 +3,8 @@ go-mysql-react
 
 Go-restful working with react, mysql + bcrypt, and bootstrap
 
+A test project. A front end for an Alerting system.
+
 	go get "code.google.com/p/go.crypto/bcrypt"
 	go get "github.com/emicklei/go-restful"
 	go get "github.com/go-sql-driver/mysql"
